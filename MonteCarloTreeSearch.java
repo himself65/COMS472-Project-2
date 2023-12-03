@@ -1,58 +1,151 @@
 package edu.iastate.cs472.proj2;
 
-/**
- * 
- * @author 
- *
- */
+import java.util.Comparator;
+import java.util.Random;
 
 /**
- * This class implements the Monte Carlo tree search method to find the best
- * move at the current state.
+ * @author Zeyu Yang
+ * Monte Carlo Tree Search
  */
 public class MonteCarloTreeSearch extends AdversarialSearch {
+    private static final double EXPLORATION_CONSTANT = Math.sqrt(2);
+    private static final int SIMULATION_COUNT = 1000;
+    private static final int STEPS_TO_DRAW = 40;
+    private static final Random random = new Random();
 
-	/**
-     * The input parameter legalMoves contains all the possible moves.
-     * It contains four integers:  fromRow, fromCol, toRow, toCol
-     * which represents a move from (fromRow, fromCol) to (toRow, toCol).
-     * It also provides a utility method `isJump` to see whether this
-     * move is a jump or a simple move.
-     *
-     * Each legalMove in the input now contains a single move
-     * or a sequence of jumps: (rows[0], cols[0]) -> (rows[1], cols[1]) ->
-     * (rows[2], cols[2]).
-     *
-     * @param legalMoves All the legal moves for the agent at current step.
+    /**
+     * Make a move using Monte Carlo Tree Search
+     * @param legalMoves Legal moves for the current player
+     * @return The best move found
      */
     public CheckersMove makeMove(CheckersMove[] legalMoves) {
-        // The checker board state can be obtained from this.board,
-        // which is an 2D array of the following integers defined below:
-    	// 
-        // 0 - empty square,
-        // 1 - red man
-        // 2 - red king
-        // 3 - black man
-        // 4 - black king
-        System.out.println(board);
-        System.out.println();
+        MCNode root = new MCNode(CheckersData.RED, CheckersData.BLACK, 0, 0, this.board, null);
 
-        // TODO 
-        
-        // Return the move for the current state.
-        // Here, we simply return the first legal move for demonstration.
-        return legalMoves[0];
+        for (int i = 0; i < SIMULATION_COUNT; i++) {
+            MCNode node = selectNode(root);
+            if (!isTerminal(node)) {
+                node = expandNode(node);
+            }
+            String result = simulateRandomPlayout(node);
+            backpropagate(node, result);
+        }
+
+        MCNode bestChild = root.getChildren().stream()
+                .max(Comparator.comparingDouble(MCNode::getPlayouts))
+                .orElseThrow(IllegalStateException::new);
+
+        return bestChild.getMoveTaken();
     }
-    
-    // TODO
-    // 
-    // Implement your helper methods here. They include at least the methods for selection,  
-    // expansion, simulation, and back-propagation. 
-    // 
-    // For representation of the search tree, you are suggested (but limited) to use a 
-    // child-sibling tree already implemented in the two classes CSTree and CSNode (which  
-    // you may feel free to modify).  If you decide not to use the child-sibling tree, simply 
-    // remove these two classes. 
-    // 
 
+    /**
+     * Select a node to expand
+     * @param node The node to select from
+     * @return The selected node
+     */
+    private MCNode selectNode(MCNode node) {
+        while (!node.hasChildren()) {
+            node = node.getChildren().stream()
+                    .max((child1, child2) -> Double.compare(ucbValue(child1), ucbValue(child2)))
+                    .orElseThrow(IllegalStateException::new);
+        }
+        return node;
+    }
+
+    /**
+     * Expand a node by adding a child node
+     * @param node The node to expand
+     * @return The child node
+     */
+    private MCNode expandNode(MCNode node) {
+        CheckersMove[] legalMoves = node.getState().getLegalMoves(node.getEnemy());
+        if (legalMoves == null) {
+            return node; // Node represents a terminal state
+        }
+        CheckersMove move = legalMoves[random.nextInt(legalMoves.length)];
+        CheckersData nextState = new CheckersData(node.getState());
+        nextState.makeMove(move);
+        MCNode childNode = new MCNode(node.getEnemy(), node.getPlayer(), 0, 0, nextState, move);
+        node.addChild(childNode);
+        return childNode;
+    }
+
+    /**
+     * Simulate a random playout from a node
+     * @param node The node to simulate from
+     * @return The result of the playout
+     */
+    private String simulateRandomPlayout(MCNode node) {
+        CheckersData state = new CheckersData(node.getState());
+        int currentPlayer = node.getEnemy(); // Enemy plays first
+        int stepsWithoutCapture = STEPS_TO_DRAW;
+
+        while (!isTerminal(state, currentPlayer)) {
+            CheckersMove[] legalMoves = state.getLegalMoves(currentPlayer);
+            CheckersMove move = legalMoves[random.nextInt(legalMoves.length)];
+            state.makeMove(move);
+
+            if (state.numberOfPieces() == node.getState().numberOfPieces()) {
+                if (--stepsWithoutCapture == 0) {
+                    return "DRAW";
+                }
+            } else {
+                stepsWithoutCapture = STEPS_TO_DRAW; // Reset the draw counter
+            }
+
+            currentPlayer = (currentPlayer == CheckersData.RED) ? CheckersData.BLACK : CheckersData.RED;
+        }
+
+        return (currentPlayer == node.getPlayer()) ? "LOSE" : "WIN";
+    }
+
+    /**
+     * Backpropagate the result of a playout
+     * @param node The node to backpropagate from
+     * @param result The result of the playout
+     */
+    private void backpropagate(MCNode node, String result) {
+        while (node != null) {
+            node.addPlayout();
+            if (node.getPlayer() == CheckersData.RED && "WIN".equals(result)) {
+                node.addWin();
+            } else if (node.getPlayer() == CheckersData.BLACK && "LOSE".equals(result)) {
+                node.addWin();
+            }
+            node = node.getParent();
+        }
+    }
+
+    /**
+     * Calculate the UCB value of a node
+     * @param node The node to calculate the UCB value of
+     * @return The UCB value of the node
+     */
+    private double ucbValue(MCNode node) {
+        if (node.getPlayouts() == 0) {
+            return Double.POSITIVE_INFINITY;
+        }
+        MCNode parentNode = node.getParent();
+        double winRate = node.getWins() / node.getPlayouts();
+        double explorationTerm = EXPLORATION_CONSTANT * Math.sqrt(Math.log(parentNode.getPlayouts()) / node.getPlayouts());
+        return winRate + explorationTerm;
+    }
+
+    /**
+     * Check if a node is terminal
+     * @param node The node to check
+     * @return True if the node is terminal, false otherwise
+     */
+    private boolean isTerminal(MCNode node) {
+        return isTerminal(node.getState(), node.getPlayer());
+    }
+
+    /**
+     * Check if a state is terminal
+     * @param state The state to check
+     * @param player The player to check for
+     * @return True if the state is terminal, false otherwise
+     */
+    private boolean isTerminal(CheckersData state, int player) {
+        return state.getLegalMoves(player) == null;
+    }
 }
