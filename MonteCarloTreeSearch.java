@@ -1,6 +1,5 @@
 package edu.iastate.cs472.proj2;
 
-import java.util.Comparator;
 import java.util.Random;
 
 /**
@@ -43,7 +42,7 @@ public class MonteCarloTreeSearch extends AdversarialSearch {
      * @return The selected node
      */
     private MCNode selectNode(MCNode node) {
-        while (!node.hasChildren()) {
+        while (!node.getChildren().isEmpty()) {
             node = node.getChildren().stream()
                     .max((child1, child2) -> Double.compare(ucbValue(child1), ucbValue(child2)))
                     .orElseThrow(IllegalStateException::new);
