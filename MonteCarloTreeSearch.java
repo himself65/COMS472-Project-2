@@ -31,7 +31,7 @@ public class MonteCarloTreeSearch extends AdversarialSearch {
         }
 
         MCNode bestChild = root.getChildren().stream()
-                .max(Comparator.comparingDouble(MCNode::getPlayouts))
+                .max((child1, child2) -> Double.compare(child1.getPlayouts(), child2.getPlayouts()))
                 .orElseThrow(IllegalStateException::new);
 
         return bestChild.getMoveTaken();
